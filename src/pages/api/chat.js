@@ -228,7 +228,7 @@ async function handleGemini(systemPrompt, messages, maxTokens) {
   const projectId = process.env.GOOGLE_PROJECT_ID;
   if (!projectId) throw new Error("GOOGLE_PROJECT_ID environment variable is not set");
   const location  = process.env.GOOGLE_LOCATION  || "us-central1";
-  const model     = process.env.GEMINI_MODEL     || "gemini-2.5-flash-preview-04-17";
+  const model     = process.env.GEMINI_MODEL     || "gemini-2.5-flash";
 
   const { GoogleAuth } = await import("google-auth-library");
   const auth = new GoogleAuth({

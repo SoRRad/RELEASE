@@ -1,5 +1,5 @@
 {
-  "name": "restore-chatbot",
+  "name": "release-chatbot",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,9 +9,12 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "google-auth-library": "^9.0.0",
+    "gsap": "^3.14.2",
+    "next": "14.2.35",
     "react": "^18",
     "react-dom": "^18",
-    "next": "14.2.35"
+    "three": "^0.183.2"
   },
   "devDependencies": {
     "eslint": "^8",

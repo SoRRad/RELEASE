@@ -387,7 +387,8 @@ export default function ReleaseApp() {
   const inputRef         = useRef(null);
   const canvasRef        = useRef(null);
   const animRef          = useRef(null);
-  const recognitionRef   = useRef(null);
+  const recognitionRef      = useRef(null);
+  const lastResultIndexRef  = useRef(0);
   const voiceDropdownRef = useRef(null);
   const langDropdownRef  = useRef(null);
 
@@ -430,22 +431,30 @@ export default function ReleaseApp() {
   }, [langDropdownOpen]);
 
   // ── Voice recognition setup (continuous, real-time) ───────────────────────
+  // Effect 1 — create the instance ONCE, never recreate it
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
     setVoiceSupported(true);
+
     const recognition = new SR();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = selectedLang?.bcp47 || "en-US";
+    recognition.lang = "en-US"; // default; updated dynamically in Effect 2
 
     recognition.onresult = (event) => {
       let finalText = "";
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) finalText += t;
-        else interim += t;
+        // Skip any result index we have already processed
+        if (i < lastResultIndexRef.current) continue;
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalText += transcript;
+          lastResultIndexRef.current = i + 1; // mark as processed
+        } else {
+          interim += transcript;
+        }
       }
       if (finalText) setInputText(prev => prev + finalText);
       setInterimText(interim);
@@ -456,13 +465,42 @@ export default function ReleaseApp() {
       setInterimText("");
     };
 
-    recognition.onerror = () => {
+    recognition.onerror = (event) => {
+      // Ignore aborted errors — these fire normally when we call .stop()
+      if (event.error === "aborted") return;
+      console.error("Speech recognition error:", event.error);
       setIsListening(false);
       setInterimText("");
     };
 
     recognitionRef.current = recognition;
-  }, [selectedLang]);
+
+    // Cleanup: stop recognition when component unmounts
+    return () => {
+      recognition.onresult = null;
+      recognition.onend = null;
+      recognition.onerror = null;
+      try { recognition.stop(); } catch (_) {}
+    };
+  }, []); // ← empty array: runs ONCE at mount only
+
+  // Effect 2 — update the language on the EXISTING instance when lang changes
+  // Never creates a new instance — just updates .lang property
+  useEffect(() => {
+    if (!recognitionRef.current) return;
+    const wasListening = isListening;
+    // Stop listening before changing language (required by spec)
+    if (wasListening) {
+      try { recognitionRef.current.stop(); } catch (_) {}
+    }
+    recognitionRef.current.lang = selectedLang?.bcp47 || "en-US";
+    // Resume if we were listening
+    if (wasListening) {
+      setTimeout(() => {
+        try { recognitionRef.current.start(); } catch (_) {}
+      }, 100);
+    }
+  }, [selectedLang]); // ← only updates .lang, never recreates
 
   // ── TTS voices loading ────────────────────────────────────────────────────
   useEffect(() => {
@@ -556,6 +594,13 @@ export default function ReleaseApp() {
 
   // ── Send message ──────────────────────────────────────────────────────────
   const sendMessage = useCallback(async (text) => {
+    // Stop voice recognition if active when sending
+    if (isListening && recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (_) {}
+      setIsListening(false);
+      setInterimText("");
+      lastResultIndexRef.current = 0;
+    }
     const trimmed = text.trim();
     if (!trimmed || isLoading) return;
     setInputText("");
@@ -581,7 +626,7 @@ export default function ReleaseApp() {
       setIsLoading(false);
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [messages, profile, isLoading, lang]);
+  }, [messages, profile, isLoading, lang, isListening]);
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(inputText); }
@@ -597,15 +642,36 @@ export default function ReleaseApp() {
   };
 
   // ── Voice input (continuous, real-time) ───────────────────────────────────
-  const toggleListening = () => {
-    if (!recognitionRef.current) return;
+  const toggleListening = useCallback(() => {
+    const recognition = recognitionRef.current;
+    if (!recognition) return;
+
     if (isListening) {
-      recognitionRef.current.stop();
+      // Stop: recognition.onend will set isListening to false
+      try { recognition.stop(); } catch (_) {}
     } else {
-      recognitionRef.current.start();
-      setIsListening(true);
+      // Clear any leftover text before starting fresh
+      setInterimText("");
+      lastResultIndexRef.current = 0;
+      // Make sure language is current before starting
+      recognition.lang = selectedLang?.bcp47 || "en-US";
+      try {
+        recognition.start();
+        setIsListening(true);
+      } catch (err) {
+        // InvalidStateError means it's already running — stop it first
+        if (err.name === "InvalidStateError") {
+          try { recognition.stop(); } catch (_) {}
+          setTimeout(() => {
+            try {
+              recognition.start();
+              setIsListening(true);
+            } catch (_) {}
+          }, 150);
+        }
+      }
     }
-  };
+  }, [isListening, selectedLang]);
 
   // ── Voice output ──────────────────────────────────────────────────────────
   const speakMessage = (msgId, content) => {
@@ -1112,7 +1178,11 @@ export default function ReleaseApp() {
               <textarea
                 ref={inputRef}
                 value={inputText}
-                onChange={e => setInputText(e.target.value)}
+                onChange={e => {
+                  setInputText(e.target.value);
+                  // Clear interim text when user edits manually
+                  if (interimText) setInterimText("");
+                }}
                 onKeyDown={handleKeyDown}
                 onInput={handleTextareaInput}
                 placeholder={isListening ? strings.listening : strings.placeholder}

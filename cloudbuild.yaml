@@ -37,6 +37,7 @@ steps:
       - '--min-instances=0'
       - '--max-instances=10'
       - '--set-env-vars=GOOGLE_PROJECT_ID=release-01-492902,GOOGLE_LOCATION=us-central1,GEMINI_MODEL=gemini-2.5-flash'
+      - '--set-secrets=ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,ADMIN_PASSWORD=ADMIN_PASSWORD:latest,GITHUB_TOKEN=GITHUB_TOKEN:latest'
 
 images:
   - 'us-central1-docker.pkg.dev/release-01-492902/release-chatbot/app:$COMMIT_SHA'

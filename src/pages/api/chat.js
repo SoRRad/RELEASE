@@ -225,7 +225,8 @@ function resolveMaxTokens(messages) {
 
 // ─── GEMINI HANDLER (ADC-based, works on Cloud Run without key file) ──────────
 async function handleGemini(systemPrompt, messages, maxTokens) {
-  const projectId = process.env.GOOGLE_PROJECT_ID || "release-01-492902";
+  const projectId = process.env.GOOGLE_PROJECT_ID;
+  if (!projectId) throw new Error("GOOGLE_PROJECT_ID environment variable is not set");
   const location  = process.env.GOOGLE_LOCATION  || "us-central1";
   const model     = process.env.GEMINI_MODEL     || "gemini-2.5-flash-preview-04-17";
 
@@ -279,7 +280,6 @@ async function handleGemini(systemPrompt, messages, maxTokens) {
 
 // ─── CLAUDE HANDLER ──────────────────────────────────────────────────────────
 async function handleClaude(systemPrompt, messages, maxTokens) {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
   const resp = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -338,6 +338,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ reply });
   } catch (err) {
     console.error("RELEASE API error:", err);
-    return res.status(500).json({ error: "AI service error", detail: err.message });
+    return res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 }

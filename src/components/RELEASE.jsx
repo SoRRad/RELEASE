@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Component as TurbulentFlow } from "./ui/turbulent-flow";
+import DOMPurify from "dompurify";
 
 // ─── THEMES ──────────────────────────────────────────────────────────────────
 const DARK_THEME = {
@@ -133,7 +134,15 @@ function renderWithCitations(text) {
     .replace(/\n\n/g, "</p><p>")
     .replace(/\n/g, "<br/>");
 
-  return html;
+  // Sanitize before returning to prevent XSS
+  const sanitized = typeof window !== "undefined"
+    ? DOMPurify.sanitize(html, {
+        ALLOWED_TAGS: ["p", "strong", "em", "br", "sup"],
+        ALLOWED_ATTR: ["style"],
+      })
+    : html; // server-side rendering fallback (no window)
+
+  return sanitized;
 }
 
 // ─── CLINICAL TOPIC CARDS ────────────────────────────────────────────────────
@@ -371,12 +380,16 @@ export default function ReleaseApp() {
   const [feedbackSent, setFeedbackSent]   = useState(false);
   const [showMobileDrawer, setShowMobileDrawer] = useState(false);
   const [isMobile, setIsMobile]           = useState(false);
+  const [voiceDropdownOpen, setVoiceDropdownOpen] = useState(false);
+  const [langDropdownOpen, setLangDropdownOpen]   = useState(false);
 
-  const messagesEndRef = useRef(null);
-  const inputRef       = useRef(null);
-  const canvasRef      = useRef(null);
-  const animRef        = useRef(null);
-  const recognitionRef = useRef(null);
+  const messagesEndRef   = useRef(null);
+  const inputRef         = useRef(null);
+  const canvasRef        = useRef(null);
+  const animRef          = useRef(null);
+  const recognitionRef   = useRef(null);
+  const voiceDropdownRef = useRef(null);
+  const langDropdownRef  = useRef(null);
 
   const theme = darkMode ? DARK_THEME : LIGHT_THEME;
   const strings = I18N[lang] || I18N.en;
@@ -395,6 +408,26 @@ export default function ReleaseApp() {
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
   }, []);
+
+  // ── Close voice dropdown on outside click ────────────────────────────────
+  useEffect(() => {
+    if (!voiceDropdownOpen) return;
+    const handler = (e) => {
+      if (!voiceDropdownRef.current?.contains(e.target)) setVoiceDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [voiceDropdownOpen]);
+
+  // ── Close language dropdown on outside click ──────────────────────────────
+  useEffect(() => {
+    if (!langDropdownOpen) return;
+    const handler = (e) => {
+      if (!langDropdownRef.current?.contains(e.target)) setLangDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [langDropdownOpen]);
 
   // ── Voice recognition setup (continuous, real-time) ───────────────────────
   useEffect(() => {
@@ -819,17 +852,6 @@ export default function ReleaseApp() {
         </button>
       ))}
 
-      {/* Edit answers button */}
-      <button
-        onClick={() => { setShowEditModal(true); setShowMobileDrawer(false); }}
-        style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 8, border: "none", background: "transparent", color: theme.textMuted, cursor: "pointer", fontSize: 12, fontFamily: "inherit", textAlign: "left", width: "100%", transition: "all 0.15s", marginTop: 8 }}
-        onMouseEnter={e => { e.currentTarget.style.background = theme.bgCardHover; e.currentTarget.style.color = theme.text; }}
-        onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = theme.textMuted; }}
-      >
-        <span style={{ fontSize: 14 }}>✏️</span>
-        <span>Edit my answers</span>
-      </button>
-
       {/* Care Team */}
       <div style={{ marginTop: "auto", padding: "12px 8px 4px", borderTop: `1px solid ${theme.border}` }}>
         <div style={{ fontSize: 10, fontWeight: 600, color: theme.textDim, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 }}>Care Team</div>
@@ -903,49 +925,92 @@ export default function ReleaseApp() {
         {/* Main chat column */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-          {/* Voice options bar */}
-          <div style={{ background: theme.bgCard, borderBottom: `1px solid ${theme.border}`, padding: "7px 16px", display: "flex", alignItems: "center", gap: 16, fontSize: 12, color: theme.textMuted, flexShrink: 0, flexWrap: "wrap" }}>
-            {/* Language selector */}
-            <select
-              value={lang}
-              onChange={e => setLang(e.target.value)}
-              style={{ background: theme.bgInput, border: `1px solid ${theme.border}`, color: theme.text, borderRadius: 6, padding: "3px 6px", fontSize: 11, cursor: "pointer", fontFamily: "inherit", outline: "none" }}
-            >
-              {LANGUAGES.map(l => (
-                <option key={l.code} value={l.code}>{l.flag} {l.code.toUpperCase()}</option>
-              ))}
-            </select>
+          {/* Compact control bar: [Language ▼]  [🎙 Voice ▼]  [✏️] */}
+          <div style={{ background: theme.bgCard, borderBottom: `1px solid ${theme.border}`, padding: "7px 16px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0, flexWrap: "wrap", minHeight: 44 }}>
 
-            {/* Voice selector */}
-            {voices.length > 0 && (
-              <select
-                value={selectedVoice ? voices.indexOf(selectedVoice) : 0}
-                onChange={e => setSelectedVoice(voices[parseInt(e.target.value)])}
-                style={{ background: theme.bgInput, border: `1px solid ${theme.border}`, color: theme.text, borderRadius: 6, padding: "3px 6px", fontSize: 11, cursor: "pointer", fontFamily: "inherit", outline: "none", maxWidth: 150 }}
+            {/* ── Language dropdown ── */}
+            <div ref={langDropdownRef} style={{ position: "relative" }}>
+              <button
+                onClick={() => { setLangDropdownOpen(o => !o); setVoiceDropdownOpen(false); }}
+                style={{ display: "flex", alignItems: "center", gap: 4, background: theme.bgInput, border: `1px solid ${theme.border}`, color: theme.text, borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 11, fontFamily: "inherit", outline: "none" }}
               >
-                {voices.map((v, i) => (
-                  <option key={i} value={i}>🔊 {v.name} ({v.lang})</option>
-                ))}
-              </select>
-            )}
+                {selectedLang.flag} {lang.toUpperCase()} <span style={{ fontSize: 9, opacity: 0.6 }}>▼</span>
+              </button>
+              {langDropdownOpen && (
+                <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 100, background: theme.bgCard, border: `1px solid ${theme.border}`, borderRadius: 10, padding: "6px 4px", minWidth: 160, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", display: "flex", flexDirection: "column", gap: 1 }}>
+                  {LANGUAGES.map(l => (
+                    <button
+                      key={l.code}
+                      onClick={() => { setLang(l.code); setLangDropdownOpen(false); }}
+                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 7, border: "none", background: lang === l.code ? theme.primaryGlow : "transparent", color: lang === l.code ? theme.primaryLight : theme.text, cursor: "pointer", fontSize: 12, fontFamily: "inherit", textAlign: "left", width: "100%" }}
+                    >
+                      <span>{l.flag}</span><span>{l.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
-            {/* Speed slider */}
-            <label style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-              Speed {speechRate.toFixed(1)}x
-              <input type="range" min="0.5" max="2.0" step="0.1" value={speechRate}
-                onChange={e => setSpeechRate(parseFloat(e.target.value))}
-                style={{ width: 70 }}
-              />
-            </label>
+            {/* ── Voice settings dropdown ── */}
+            <div ref={voiceDropdownRef} style={{ position: "relative" }}>
+              <button
+                onClick={() => { setVoiceDropdownOpen(o => !o); setLangDropdownOpen(false); }}
+                style={{ display: "flex", alignItems: "center", gap: 4, background: voiceDropdownOpen ? theme.primaryGlow : theme.bgInput, border: `1px solid ${voiceDropdownOpen ? theme.primary : theme.border}`, color: voiceDropdownOpen ? theme.primaryLight : theme.text, borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 11, fontFamily: "inherit", outline: "none" }}
+              >
+                🎙️ Voice <span style={{ fontSize: 9, opacity: 0.6 }}>▼</span>
+              </button>
+              {voiceDropdownOpen && (
+                <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 100, background: theme.bgCard, border: `1px solid ${theme.border}`, borderRadius: 12, padding: "14px 16px", minWidth: 240, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", display: "flex", flexDirection: "column", gap: 12 }}>
+                  {/* Voice selector */}
+                  {voices.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: theme.textMuted, letterSpacing: 0.5, textTransform: "uppercase" }}>Voice</span>
+                      <select
+                        value={selectedVoice ? selectedVoice.name : ""}
+                        onChange={e => setSelectedVoice(voices.find(v => v.name === e.target.value) || voices[0])}
+                        style={{ width: "100%", background: theme.bgInput, border: `1px solid ${theme.border}`, color: theme.text, borderRadius: 6, padding: "5px 8px", fontSize: 11, fontFamily: "inherit", outline: "none", cursor: "pointer" }}
+                      >
+                        {voices.map((v, i) => (
+                          <option key={i} value={v.name}>{v.name} ({v.lang})</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {/* Speed */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 11, color: theme.textMuted }}>Speed</span>
+                      <span style={{ fontSize: 11, color: theme.primaryLight, fontWeight: 600 }}>{speechRate.toFixed(1)}x</span>
+                    </div>
+                    <input type="range" min="0.5" max="2.0" step="0.1" value={speechRate}
+                      onChange={e => setSpeechRate(parseFloat(e.target.value))}
+                      style={{ width: "100%" }}
+                    />
+                  </div>
+                  {/* Pitch */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 11, color: theme.textMuted }}>Pitch</span>
+                      <span style={{ fontSize: 11, color: theme.primaryLight, fontWeight: 600 }}>{speechPitch.toFixed(1)}</span>
+                    </div>
+                    <input type="range" min="0.5" max="2.0" step="0.1" value={speechPitch}
+                      onChange={e => setSpeechPitch(parseFloat(e.target.value))}
+                      style={{ width: "100%" }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
 
-            {/* Pitch slider */}
-            <label style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-              Pitch {speechPitch.toFixed(1)}
-              <input type="range" min="0.5" max="2.0" step="0.1" value={speechPitch}
-                onChange={e => setSpeechPitch(parseFloat(e.target.value))}
-                style={{ width: 70 }}
-              />
-            </label>
+            {/* ── Edit intake answers icon ── */}
+            <button
+              onClick={() => setShowEditModal(true)}
+              title="Edit your intake answers"
+              style={{ background: theme.bgCard, border: `1px solid ${theme.border}`, borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 14, color: theme.textMuted, fontFamily: "inherit", lineHeight: 1 }}
+              onMouseEnter={e => { e.currentTarget.style.color = theme.text; e.currentTarget.style.borderColor = theme.borderHover; }}
+              onMouseLeave={e => { e.currentTarget.style.color = theme.textMuted; e.currentTarget.style.borderColor = theme.border; }}
+            >✏️</button>
+
           </div>
 
           {/* Messages area */}
@@ -974,7 +1039,11 @@ export default function ReleaseApp() {
                       color: msg.role === "user" ? "#fff" : theme.text,
                       textAlign: isRTL ? "right" : "left",
                     }}>
-                      <div dangerouslySetInnerHTML={{ __html: `<p style="margin:0">${renderWithCitations(msg.content)}</p>` }} />
+                      {msg.role === "user" ? (
+                        <div style={{ whiteSpace: "pre-wrap" }}>{msg.content}</div>
+                      ) : (
+                        <div dangerouslySetInnerHTML={{ __html: `<p style="margin:0">${renderWithCitations(msg.content)}</p>` }} />
+                      )}
                     </div>
                     {/* Speak button on assistant messages */}
                     {msg.role === "assistant" && (
